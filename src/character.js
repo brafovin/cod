@@ -3,6 +3,7 @@ import { clamp, lerp, rand, pick, chance, smooth, windU, damp } from './util.js'
 import * as T from './terrain.js';
 import { camoTex, flagTex } from './textures.js';
 import { buildGun, buildKnife, Weapon, ReloadAnim, OverheatAnim } from './weapons.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const SKINS = [0xf0c8a8, 0xe6b592, 0xd49d74, 0xb27a52, 0x8a5a38, 0x5e3a22];
 const EYES = [[0x3a2210, 'braun'], [0x3f78b8, 'blau'], [0x4a8a4a, 'grün']];
@@ -39,6 +40,17 @@ const skinMat = (c) => { const r = res(); if (!r.skinMats.has(c)) r.skinMats.set
 const irisMat = (c) => { const r = res(); if (!r.irisMats.has(c)) r.irisMats.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.2, side: THREE.DoubleSide })); return r.irisMats.get(c); };
 const hairMat = (c) => { const r = res(); if (!r.hairMats.has(c)) r.hairMats.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 })); return r.hairMats.get(c); };
 
+// merge static child meshes of a group by material (fewer draw calls)
+function mergeStatic(group, skip = []) {
+  const buckets = new Map(); const kids = group.children.filter((c) => c.isMesh && !skip.includes(c));
+  for (const m of kids) {
+    m.updateMatrix(); const g = m.geometry.clone(); g.applyMatrix4(m.matrix);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    if (!g.index) { const n = g.attributes.position.count, idx = []; for (let i = 0; i < n; i++) idx.push(i); g.setIndex(idx); }
+    if (!buckets.has(m.material)) buckets.set(m.material, []); buckets.get(m.material).push(g); group.remove(m);
+  }
+  for (const [mat, geos] of buckets) { const mm = new THREE.Mesh(geos.length > 1 ? mergeGeometries(geos) : geos[0], mat); mm.castShadow = true; group.add(mm); }
+}
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _p1 = new THREE.Vector3(), _p2 = new THREE.Vector3(), _vd = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -122,19 +134,20 @@ export class Character {
     const nose = new THREE.Mesh(r.box, skin); nose.scale.set(0.02 * s, 0.032 * s, 0.022 * s); nose.position.set(0, -0.012 * s, -0.103 * s); hg.add(nose);
     const mouth = new THREE.Mesh(r.box, r.mouth); mouth.scale.set(0.034 * s, 0.005 * s, 0.004 * s); mouth.position.set(0, -0.05 * s, -0.098 * s); hg.add(mouth);
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(r.eyeGeo, r.white); eye.position.set(sx * 0.037 * s, 0.014 * s, -0.093 * s); eye.scale.setScalar(s); hg.add(eye);
-      const iris = new THREE.Mesh(r.irisGeo, irisMat(o.app.eye)); iris.position.set(sx * 0.037 * s, 0.014 * s, -0.1055 * s); iris.rotation.y = Math.PI; iris.scale.setScalar(s); hg.add(iris);
-      const brow = new THREE.Mesh(r.box, hairMat(o.app.hairColor)); brow.scale.set(0.03 * s, 0.006 * s, 0.006 * s); brow.position.set(sx * 0.037 * s, 0.034 * s, -0.1 * s); hg.add(brow);
+      const eye = new THREE.Mesh(r.eyeGeo, r.white); eye.position.set(sx * 0.037 * s, -0.002 * s, -0.093 * s); eye.scale.setScalar(s); hg.add(eye);
+      const iris = new THREE.Mesh(r.irisGeo, irisMat(o.app.eye)); iris.position.set(sx * 0.037 * s, -0.002 * s, -0.1055 * s); iris.rotation.y = Math.PI; iris.scale.setScalar(s); hg.add(iris);
+      const brow = new THREE.Mesh(r.box, hairMat(o.app.hairColor)); brow.scale.set(0.03 * s, 0.006 * s, 0.006 * s); brow.position.set(sx * 0.037 * s, 0.022 * s, -0.1 * s); hg.add(brow);
     }
     if (o.app.mask === 'balaclava') { const bc = new THREE.Mesh(r.collarGeo, r.black); bc.scale.set(0.95 * s, 1.1 * s, 1.0 * s); bc.rotation.y = 0; hg.add(bc); }
-    if (o.app.mask === 'goggles') { const gg = new THREE.Mesh(r.box, r.goggle); gg.scale.set(0.2 * s, 0.045 * s, 0.03 * s); gg.position.set(0, 0.016 * s, -0.104 * s); hg.add(gg); const st = new THREE.Mesh(r.box, r.black); st.scale.set(0.215 * s, 0.03 * s, 0.2 * s); st.position.set(0, 0.016 * s, -0.01 * s); hg.add(st); }
-    const hm = new THREE.Mesh(r.helmGeo, r.helm[this.team]); hm.scale.set(1.0 * s, 0.92 * s, 1.1 * s); hm.position.set(0, 0.022 * s, 0.006 * s); hm.castShadow = true; hg.add(hm);
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.128, 0.132, 0.018, 18, 1, true), r.helm[this.team]); brim.scale.set(s, s, 1.1 * s); brim.position.set(0, -0.02 * s, 0.01 * s); hg.add(brim);
-    const flare = new THREE.Mesh(r.box, r.helm[this.team]); flare.scale.set(0.2 * s, 0.07 * s, 0.05 * s); flare.position.set(0, -0.045 * s, 0.13 * s); hg.add(flare);
+    if (o.app.mask === 'goggles') { const gg = new THREE.Mesh(r.box, r.goggle); gg.scale.set(0.2 * s, 0.045 * s, 0.03 * s); gg.position.set(0, -0.002 * s, -0.104 * s); hg.add(gg); const st = new THREE.Mesh(r.box, r.black); st.scale.set(0.215 * s, 0.03 * s, 0.2 * s); st.position.set(0, -0.002 * s, -0.01 * s); hg.add(st); }
+    const hm = new THREE.Mesh(r.helmGeo, r.helm[this.team]); hm.scale.set(1.0 * s, 0.92 * s, 1.1 * s); hm.position.set(0, 0.066 * s, 0.012 * s); hm.rotation.x = -0.12; hm.castShadow = true; hg.add(hm);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.128, 0.132, 0.018, 18, 1, true), r.helm[this.team]); brim.scale.set(s, s, 1.1 * s); brim.position.set(0, 0.026 * s, 0.014 * s); brim.rotation.x = -0.12; hg.add(brim);
+    const flare = new THREE.Mesh(r.box, r.helm[this.team]); flare.scale.set(0.2 * s, 0.07 * s, 0.05 * s); flare.position.set(0, -0.01 * s, 0.13 * s); hg.add(flare);
     for (const sx of [-1, 1]) {
-      const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.075 * s, 0.048 * s), r.flag[this.team]); fl.position.set(sx * 0.1285 * s, 0.03 * s, -0.012 * s); fl.rotation.y = sx * Math.PI / 2; hg.add(fl);
+      const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.075 * s, 0.048 * s), r.flag[this.team]); fl.position.set(sx * 0.1285 * s, 0.075 * s, -0.012 * s); fl.rotation.y = sx * Math.PI / 2; hg.add(fl);
     }
-    const cap = new THREE.Mesh(r.capGeo, hairMat(o.app.hairColor)); cap.scale.set(0.95 * s, 1.02 * s, 1.02 * s); cap.position.y = 0.006 * s; if (o.app.hairStyle !== 'buzz') hg.add(cap);
+    const cap = new THREE.Mesh(r.capGeo, hairMat(o.app.hairColor)); cap.scale.set(0.95 * s, 1.02 * s, 1.02 * s); cap.position.y = 0.03 * s; if (o.app.hairStyle !== 'buzz') hg.add(cap);
+    mergeStatic(tg, this.cloth.map((c) => c.m)); mergeStatic(hg);
     this.hair = this._makeHair(o.app.hairStyle, o.app.hairColor);
     g.add(this.hair.lines);
     // weapon models (lazy)

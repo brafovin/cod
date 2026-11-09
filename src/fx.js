@@ -103,7 +103,7 @@ export class FX {
     const sg = new THREE.CylinderGeometry(0.0095, 0.0095, 0.06, 8); sg.rotateX(Math.PI / 2);
     this.shells = new SmallBodies(scene, sg, red, 120, { radius: 0.01, bounce: 0.3, fric: 0.5, sound: true });
     this.loose = new SmallBodies(scene, bulletGeo9(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.9 }), 500, { radius: 0.006, bounce: 0.3, fric: 0.5 });
-    const rt = rockTex(); const pg = new THREE.IcosahedronGeometry(1, 1); const pos = pg.attributes.position; for (let i = 0; i < pos.count; i++) { const k = 0.7 + Math.abs(Math.sin(i * 12.9898) * 43758.5453 % 1) * 0.5; pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.7, pos.getZ(i) * k); } pg.computeVertexNormals();
+    const rt = rockTex(); const pg = new THREE.IcosahedronGeometry(0.03, 1); const pos = pg.attributes.position; for (let i = 0; i < pos.count; i++) { const k = 0.7 + Math.abs(Math.sin(i * 12.9898) * 43758.5453 % 1) * 0.5; pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.7, pos.getZ(i) * k); } pg.computeVertexNormals();
     this.pebbles = new SmallBodies(scene, pg, new THREE.MeshStandardMaterial({ map: rt, roughness: 0.95 }), 500, { radius: 0.03, bounce: 0.25, fric: 0.4, shadow: false });
     // leaves
     this.initLeaves(scene);
@@ -238,6 +238,7 @@ export class FX {
     for (let k = this.props.length - 1; k >= 0; k--) {
       const p = this.props[k];
       if (p.kind === 'rocket' || p.kind === 'knife_fly') { hooks.flight(p, dt, k); continue; }
+      if (p.ttl !== undefined) { p.ttl -= dt; if (p.ttl <= 0) { this.removeProp(p); continue; } }
       if (p.fuse !== undefined) { p.fuse -= dt; if (p.fuse <= 0) { hooks.explode(p); this.removeProp(p); continue; } }
       // characters walking over objects make them react
       for (const c of chars) {

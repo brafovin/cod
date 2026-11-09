@@ -135,6 +135,14 @@ export function buildGun(weapon) {
     o.sight = new THREE.Vector3(0.05, 0.12, -0.05); o.muzzleBase = -0.75; o.boltPos = new THREE.Vector3(0, 0.02, -0.7);
     o.supp = null; o.long = null; o.mag = null; o.suppLen = 0; o.longLen = 0;
   }
+  // merge static parts by material; keep animated / toggled parts separate
+  { const dyn = new Set([o.bolt, o.slide, o.pump, o.supp, o.long, o.rocket, o.handShell, o.mag && o.mag.group, o.shells, o.flashlight, o.muzzle, o.eject]);
+    for (const c of g.children) if (c.isMesh && c.material === M.glassTube) dyn.add(c);
+    for (const c of g.children) if (c.isMesh && o.barrelMat && c.material === o.barrelMat) dyn.add(c);
+    const buckets = new Map();
+    for (const c of [...g.children]) { if (!c.isMesh || c.isInstancedMesh || dyn.has(c) || c.userData.keep) continue; c.updateMatrix(); const gg = c.geometry.clone(); gg.applyMatrix4(c.matrix); for (const k of Object.keys(gg.attributes)) if (!['position', 'normal', 'uv'].includes(k)) gg.deleteAttribute(k); if (!buckets.has(c.material)) buckets.set(c.material, []); buckets.get(c.material).push(gg); g.remove(c); }
+    for (const [mat, geos] of buckets) { const mm = new THREE.Mesh(geos.length > 1 ? mergeGeometries(geos) : geos[0], mat); g.add(mm); }
+  }
   if (o.supp) { o.supp.visible = false; o.supp.material = M.poly; }
   if (o.long) o.long.visible = false;
   o.update = (w) => {

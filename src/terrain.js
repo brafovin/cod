@@ -6,7 +6,7 @@ export const HALF = 180;      // grid half extent
 export const PLAY = 150;      // playable half extent (mine zone starts beyond)
 export const RES = 0.5;       // grid resolution
 export const S = Math.round((HALF * 2) / RES) + 1;
-const MESH_HALF = 176, MESH_STEP = 0.7;
+const MESH_HALF = 176;
 
 const H = new Float32Array(S * S);
 const TD = new Float32Array(S * S).fill(99);
@@ -47,16 +47,16 @@ function zigzag(x0, z0, x1, z1, step, amp, phase = 0) {
 function layoutTrenches() {
   const r = mulberry32(42);
   for (const s of [1, -1]) {
-    const front = addTrench(zigzag(-132, s * 50, 132, s * 50, 13, 3.2, 0), 1.55, true, true);
-    const supp = addTrench(zigzag(-126, s * 90, 126, s * 90, 14, 3.5, 1), 1.5, true, true);
-    const rear = addTrench(zigzag(-95, s * 122, 95, s * 122, 15, 2.8, 0), 1.45, true, true);
+    const front = addTrench(zigzag(-132, s * 50, 132, s * 50, 13, 3.2, 0), 1.5, true, true);
+    const supp = addTrench(zigzag(-126, s * 90, 126, s * 90, 14, 3.5, 1), 1.45, true, true);
+    const rear = addTrench(zigzag(-95, s * 122, 95, s * 122, 15, 2.8, 0), 1.4, true, true);
     // communication trenches
     const xs = [-105, -48, 8, 62, 108];
     for (let k = 0; k < xs.length; k++) {
       const x = xs[k], jig = (r() - 0.5) * 14;
       const a = front.pts.reduce((b, p) => (Math.abs(p.x - x) < Math.abs(b.x - x) ? p : b));
       const b = supp.pts.reduce((bb, p) => (Math.abs(p.x - (x + jig)) < Math.abs(bb.x - (x + jig)) ? p : bb));
-      addTrench(zigzag(a.x, a.z, b.x, b.z, 9, 2.4, k), 1.45, false, false);
+      addTrench(zigzag(a.x, a.z, b.x, b.z, 9, 2.4, k), 1.42, false, false);
       if (k % 2 === 0 && Math.abs(x) < 95) {
         const c = rear.pts.reduce((bb, p) => (Math.abs(p.x - b.x) < Math.abs(bb.x - b.x) ? p : bb));
         addTrench(zigzag(b.x, b.z, c.x, c.z, 9, 2.2, k + 1), 1.4, false, false);
@@ -182,7 +182,7 @@ export function surfaceAt(x, z) {
   return 'dirt';
 }
 
-export function buildTerrainMesh() {
+export function buildTerrainMesh(MESH_STEP = 0.7) {
   const n = Math.round((MESH_HALF * 2) / MESH_STEP), vs = n + 1;
   const pos = new Float32Array(vs * vs * 3), nor = new Float32Array(vs * vs * 3), col = new Float32Array(vs * vs * 3), uv = new Float32Array(vs * vs * 2);
   const idx = new Uint32Array(n * n * 6);

@@ -21,7 +21,7 @@ export function makeWeaponProp(w, pos, vel, reserve = 0) {
   if (!w.model) w.model = buildGun(w); else w.model.update(w);
   const wrap = new THREE.Group(); const g = w.model.group; g.visible = true; g.position.set(0, 0, w.type === 'pistol' ? 0.0 : 0.3); g.rotation.set(0, 0, 0); g.scale.setScalar(1);
   if (w.model.mag) { w.model.mag.group.visible = true; w.model.mag.group.position.copy(w.model.magRest); }
-  w.model.group.traverse((c) => { if (c.isMesh) c.castShadow = true; });
+  w.model.group.traverse((c) => { if (c.isMesh) c.castShadow = false; });
   wrap.add(g);
   const mesh = wrap; const p = ctx.fx.addProp({ kind: 'weapon', mesh, pos: pos.clone(), vel: vel.clone(), rest: 0.05, size: w.type === 'pistol' ? 0.2 : 0.45, lying: LYING, data: { weapon: w, reserve }, pickable: true, label: DEFS[w.type].name });
   return p;
@@ -38,7 +38,7 @@ export function makeAttachmentProp(kind, pos, vel = new THREE.Vector3()) {
 }
 export function makeMagProp(cap, count, pos, vel) {
   const mv = buildMagVis(cap, count); const g = new THREE.Group(); g.add(mv.group); mv.group.position.y = mv.H * 0.5;
-  return ctx.fx.addProp({ kind: 'mag', mesh: g, pos: pos.clone(), vel: vel.clone(), rest: 0.03, size: 0.2, lying: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2 * 0.98)), data: { count } });
+  return ctx.fx.addProp({ kind: 'mag', mesh: g, pos: pos.clone(), vel: vel.clone(), rest: 0.03, size: 0.2, lying: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2 * 0.98)), data: { count }, ttl: 40 });
 }
 function buildMagVis(cap, count) { const w = { type: 'mg', cap, mag: count, heat: 0 }; const m = buildGun(w); const mv = m.mag; mv.setCount(count); return mv; }
 export function makeKnifeProp(pos, vel = new THREE.Vector3(), stuck = null) {
@@ -224,7 +224,7 @@ export function flightStep(p, dt, k) {
 
 export function dropWeapons(c, vel) {
   const base = new THREE.Vector3(c.pos.x, c.pos.y + 1.0, c.pos.z);
-  const w = c.weapons.primary; if (w) { makeWeaponProp(w, base, vel.clone().add(new THREE.Vector3(rand(-0.5, 0.5), 1, rand(-0.5, 0.5))), 0); c.weapons.primary = null; }
-  const p = c.weapons.pistol; if (p && chance(0.5)) { makeWeaponProp(p, base.clone().add(new THREE.Vector3(0.3, 0, 0)), vel.clone().add(new THREE.Vector3(rand(-1, 1), 1, rand(-1, 1))), 0); }
+  const w = c.weapons.primary; if (w) { makeWeaponProp(w, base, vel.clone().add(new THREE.Vector3(rand(-0.5, 0.5), 1, rand(-0.5, 0.5))), 0).ttl = c.isPlayer ? 120 : 75; c.weapons.primary = null; }
+  const p = c.weapons.pistol; if (p && chance(0.5)) { makeWeaponProp(p, base.clone().add(new THREE.Vector3(0.3, 0, 0)), vel.clone().add(new THREE.Vector3(rand(-1, 1), 1, rand(-1, 1))), 0).ttl = 60; }
   c.weapons.pistol = null; c.reload = null; c.overheat = null;
 }

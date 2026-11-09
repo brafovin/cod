@@ -142,7 +142,7 @@ export class Game {
   // ---------------------------------------------------------------- setup
   async init(progress) {
     const canvas = $('game');
-    const q = new URLSearchParams(location.search).get('q'); if (q) { this.quality = q; $('qsel').value = q; }
+    let q = new URLSearchParams(location.search).get('q'); if (!q) { try { q = localStorage.getItem('ron_q'); } catch (e) {} } if (q) { this.quality = q; $('qsel').value = q; }
     const renderer = this.renderer = ctx.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
     this.pr = Math.min(window.devicePixelRatio || 1, 1.5);
     renderer.setPixelRatio(this.pr); renderer.setSize(innerWidth, innerHeight, false);
@@ -184,7 +184,7 @@ export class Game {
     this.vmCam.aspect = innerWidth / innerHeight; this.vmCam.updateProjectionMatrix(); this.post.resize(Math.floor(innerWidth * this.pr), Math.floor(innerHeight * this.pr));
   }
 
-  setQuality(q) { this.quality = q; this.post.setMode(q); }
+  setQuality(q) { try { localStorage.setItem('ron_q', q); } catch (e) {} location.href = location.pathname + '?q=' + q; }
 
   spawnPickups() {
     const W = this.world, drop = (fn) => { const s = fn.spot; const p = new THREE.Vector3(s.x, T.h(s.x, s.z) + 0.5, s.z); return p; };
@@ -281,7 +281,7 @@ export class Game {
     if (!isPlayer) {
       c.brain = new Brain(c, this.nav);
       // flashlight beam (visible at night)
-      const geo = new THREE.ConeGeometry(2.0, 13, 14, 1, true); geo.translate(0, -6.5, 0); geo.rotateX(Math.PI / 2);
+      const geo = new THREE.ConeGeometry(1.3, 13, 14, 1, true); geo.translate(0, -6.5, 0); geo.rotateX(Math.PI / 2);
       c.beam = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false })); c.beam.frustumCulled = false; this.scene.add(c.beam);
     }
     return c;
@@ -469,7 +469,7 @@ export class Game {
     if (c.beam) {
       const on = c.alive && c.flashOn && c.cur !== 'knife'; const night = this.sky.dark;
       c.beam.visible = on && night > 0.4;
-      if (c.beam.visible) { A.muzzleWorld(c, c.beam.position); _e.set(c.aimPitch, c.yaw, 0); c.beam.quaternion.setFromEuler(_e); c.beam.material.opacity = 0.05 * night; }
+      if (c.beam.visible) { A.muzzleWorld(c, c.beam.position); _e.set(c.aimPitch, c.yaw, 0); c.beam.quaternion.setFromEuler(_e); c.beam.material.opacity = 0.022 * night; }
     }
   }
 
@@ -512,7 +512,7 @@ export class Game {
     const tx = moving ? wx / wl * speed : 0, tz = moving ? wz / wl * speed : 0;
     const acc = c.onGround ? (moving ? 11 : 13) : 1.6; // slightly heavy, weighty movement
     c.vel.x += (tx - c.vel.x) * Math.min(1, acc * dt); c.vel.z += (tz - c.vel.z) * Math.min(1, acc * dt);
-    if (can && k.Space && c.onGround && !c.exhausted) { c.vel.y = 5.0; c.onGround = false; this.audio.footstep(this.surfaceFor(c), c.pos, 0.9, 0.9, 1.2); }
+    if (can && k.Space && c.onGround && !c.exhausted) { c.vel.y = 5.3; c.onGround = false; this.audio.footstep(this.surfaceFor(c), c.pos, 0.9, 0.9, 1.2); }
     c.sprinting = sprinting;
     const landed = physStep(c, dt);
     if (landed > 0) { this.audio.land(c.pos, this.surfaceFor(c)); this.landDip = Math.min(0.22, landed * 0.025); this.trauma = Math.min(1, this.trauma + Math.min(0.3, landed * 0.03)); }

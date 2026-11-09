@@ -153,10 +153,10 @@ export function sandbagTex() {
 
 export function rockTex() {
   const c = cv(256, 256), g = c.getContext('2d');
-  g.fillStyle = '#7d7c76'; g.fillRect(0, 0, 256, 256);
-  speckle(g, 256, 256, 9000, 3, 0.45);
+  g.fillStyle = '#95948c'; g.fillRect(0, 0, 256, 256);
+  speckle(g, 256, 256, 6000, 2, 0.3);
   for (let i = 0; i < 12; i++) { const x = Math.random() * 256, y = Math.random() * 256, r = 20 + Math.random() * 40; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(60,70,40,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
-  g.strokeStyle = 'rgba(15,15,15,0.85)'; g.lineWidth = 1.3; // cracks
+  g.strokeStyle = 'rgba(25,25,25,0.6)'; g.lineWidth = 1.2; // cracks
   for (let i = 0; i < 10; i++) {
     let x = Math.random() * 256, y = Math.random() * 256, a = Math.random() * 6.28; g.beginPath(); g.moveTo(x, y);
     for (let k = 0; k < 9; k++) { a += (Math.random() - 0.5) * 1.1; x += Math.cos(a) * 12; y += Math.sin(a) * 12; g.lineTo(x, y); if (Math.random() < 0.2) { g.moveTo(x, y); } }

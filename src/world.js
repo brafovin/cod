@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ctx } from './ctx.js';
 import * as T from './terrain.js';
 import { clamp, rand, randi, pick, chance, smooth, lerp, windU, mulberry32 } from './util.js';
@@ -91,7 +91,7 @@ export function buildWorld(scene, fx, quality = 'high') {
 
   // ---------- terrain
   T.buildTerrainData();
-  const terrain = T.buildTerrainMesh(); scene.add(terrain); scene.add(terrain.userData.far);
+  const terrain = T.buildTerrainMesh(quality === 'low' ? 1.0 : quality === 'medium' ? 0.85 : 0.7); scene.add(terrain); scene.add(terrain.userData.far);
   W.terrain = terrain;
 
   const addBox = (minx, miny, minz, maxx, maxy, maxz, mat) => { const b = { minx, miny, minz, maxx, maxy, maxz, mat }; W.colliders.push(b); return b; };
@@ -127,25 +127,39 @@ export function buildWorld(scene, fx, quality = 'high') {
     if (treeSpots.some((p) => Math.hypot(p.x - x, p.z - z) < 4.5)) continue;
     treeSpots.push({ x, z });
     const kinds = [0, 0, 1, 1, 5, 5, 2, 2, 3, 4], vi = pick(kinds), v = variants[vi], sc = R(0.85, 1.3);
-    const grp = new THREE.Group(); grp.position.set(x, T.h(x, z) - 0.1, z); grp.rotation.y = rng() * 6.28; grp.scale.setScalar(sc);
-    const tm = new THREE.Mesh(v.trunk, trunkMat); tm.castShadow = true; tm.receiveShadow = true; grp.add(tm);
-    let lm = null; if (v.leaf) { lm = new THREE.Mesh(v.leaf, leafMat); lm.castShadow = true; grp.add(lm); }
-    scene.add(grp);
-    const tree = { x, z, r: v.r0 * sc * 1.05, h: v.H * sc, alive: true, falling: false, group: grp, leafy: !!v.leaf && v.kind === 'leafy', fallT: 0, kind: v.kind };
+    const tree = { x, z, r: v.r0 * sc * 1.05, h: v.H * sc, alive: true, falling: false, vi, sc, yaw: rng() * 6.28, base: new THREE.Vector3(x, T.h(x, z) - 0.1, z), leafy: !!v.leaf && v.kind === 'leafy', fallT: 0, kind: v.kind };
     W.trees.push(tree);
     // pre-existing bullet damage on the trunks
     const nh = 2 + Math.floor(rng() * 6);
     for (let k = 0; k < nh; k++) { const a = rng() * 6.28, y = R(0.4, 2.6); const nx = Math.cos(a), nz = Math.sin(a); fx.decal(new THREE.Vector3(x + nx * tree.r * 0.97, T.h(x, z) + y, z + nz * tree.r * 0.97), new THREE.Vector3(nx, 0, nz), R(0.05, 0.1), 'hole', [0.55, 0.5, 0.45]); }
     for (let k = 0; k < 7; k++) fx.scatterLeaf(x + R(-5, 5), z + R(-5, 5));
   }
+  {
+    const per = variants.map(() => []);
+    for (const t of W.trees) { t.idx = per[t.vi].length; per[t.vi].push(t); }
+    W.treeMeshes = variants.map((v, vi) => {
+      const L = per[vi]; if (!L.length) return null;
+      const tm = new THREE.InstancedMesh(v.trunk, trunkMat, L.length); tm.castShadow = true; tm.receiveShadow = true;
+      const lm = v.leaf ? new THREE.InstancedMesh(v.leaf, leafMat, L.length) : null; if (lm) lm.castShadow = true;
+      L.forEach((t, i) => { _m.compose(t.base, _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.yaw), _s.set(t.sc, t.sc, t.sc)); tm.setMatrixAt(i, _m); if (lm) lm.setMatrixAt(i, _m); });
+      tm.frustumCulled = false; scene.add(tm); if (lm) { lm.frustumCulled = false; scene.add(lm); }
+      return { tm, lm };
+    });
+    W.setTreeMatrix = (t, q) => { const m = W.treeMeshes[t.vi]; _m.compose(t.base, q, _s.set(t.sc, t.sc, t.sc)); m.tm.setMatrixAt(t.idx, _m); m.tm.instanceMatrix.needsUpdate = true; if (m.lm) { m.lm.setMatrixAt(t.idx, _m); m.lm.instanceMatrix.needsUpdate = true; } };
+  }
   W.fellTree = (t, dir) => { if (t.falling || !t.alive) return; t.falling = true; t.fallT = 0; t.dir = dir.clone(); t.crashed = false; W.falling.push(t); ctx.audio.treeCrash(new THREE.Vector3(t.x, T.h(t.x, t.z), t.z)); fx.leafBurst(new THREE.Vector3(t.x, T.h(t.x, t.z) + t.h * 0.7, t.z), 30); };
   const stumpMat = trunkMat;
 
   // ---------- grass (chunked, distance culled, wind + body reactive)
   {
-    const bg = new THREE.BufferGeometry(); const w = 0.045;
-    bg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-w, 0, 0, w, 0, 0, -w * 0.7, 0.5, 0, w * 0.7, 0.5, 0, 0.004, 1, 0]), 3));
-    bg.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]); bg.computeVertexNormals();
+    // a tuft = 5 blades fanned out with slight lean (≈ 15 triangles)
+    const blades = [];
+    for (let k = 0; k < 5; k++) {
+      const g = new THREE.BufferGeometry(), w = 0.035 + (k % 2) * 0.01, hgt = 0.65 + (k % 3) * 0.18, lean = 0.12 + k * 0.05;
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-w, 0, 0, w, 0, 0, -w * 0.7, hgt * 0.5, lean * 0.4, w * 0.7, hgt * 0.5, lean * 0.4, 0.004, hgt, lean]), 3));
+      g.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]); g.rotateY(k * 1.26 + 0.3); g.translate(Math.cos(k * 2.1) * 0.06, 0, Math.sin(k * 2.1) * 0.06); blades.push(g);
+    }
+    const bg = mergeGeometries(blades); bg.computeVertexNormals();
     const gm = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.9, color: 0xffffff });
     gm.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = windU.uTime; sh.uniforms.uWind = windU.uWind; sh.uniforms.uWindDir = windU.uWindDir; sh.uniforms.uChars = windU.uChars;
@@ -158,7 +172,7 @@ export function buildWorld(scene, fx, quality = 'high') {
           for (int i = 0; i < 10; i++) { vec2 d = wp.xz - uChars[i].xz; float dist = length(d); float push = smoothstep(1.2, 0.1, dist) * step(abs(wp.y - uChars[i].y), 1.5); transformed.xz += normalize(d + 1e-4) * push * gh * 0.8; transformed.y -= push * gh * 0.5; }`)
         .replace('#include <color_vertex>', `#include <color_vertex>\n vColor.rgb *= mix(0.4, 1.0, position.y);`);
     };
-    const CH = 25, perChunk = quality === 'low' ? 500 : quality === 'medium' ? 900 : 1500;
+    const CH = 25, perChunk = quality === 'low' ? 450 : quality === 'medium' ? 800 : 1300;
     W.grassChunks = [];
     const col = new THREE.Color();
     for (let cx = -T.PLAY; cx < T.PLAY; cx += CH) for (let cz = -T.PLAY; cz < T.PLAY; cz += CH) {
@@ -166,7 +180,7 @@ export function buildWorld(scene, fx, quality = 'high') {
       for (let i = 0; i < perChunk; i++) {
         const x = cx + rng() * CH, z = cz + rng() * CH, g = T.grassAt(x, z);
         if (g < 0.2 || rng() > g) continue; if (BUILD_SPOTS.some((b) => Math.abs(x - b.x) < 9 && Math.abs(z - b.z) < 7)) continue;
-        const sc = R(0.35, 0.95) * (0.7 + g * 0.6) * (chance(0.06) ? 1.7 : 1);
+        const sc = R(0.5, 1.0) * (0.6 + g * 0.5) * (chance(0.05) ? 1.5 : 1);
         _m.compose(_p.set(x, T.h(x, z) - 0.02, z), _q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng() * 6.28), _s.set(1.3, sc, 1)); mats.push(_m.clone());
       }
       if (!mats.length) continue;
@@ -180,7 +194,16 @@ export function buildWorld(scene, fx, quality = 'high') {
   // ---------- rocks / stones (static, cracked)
   {
     const rt = TX.rockTex(), rm = new THREE.MeshStandardMaterial({ map: rt, roughness: 0.93 });
-    const geos = [0, 1, 2].map((k) => { const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position; const r = mulberry32(k * 31 + 5); for (let i = 0; i < p.count; i++) { const v = new THREE.Vector3().fromBufferAttribute(p, i); const n = 0.78 + 0.35 * Math.abs(Math.sin(v.x * 3.1 + k) * Math.cos(v.y * 2.7 + v.z * 2.3)) + r() * 0.04; v.multiplyScalar(n); v.y *= 0.65; p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2, uv.getY(i) * 2); return g; });
+    const geos = [0, 1, 2].map((k) => {
+      let g = new THREE.IcosahedronGeometry(1, 3); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-4);
+      const p = g.attributes.position, r = mulberry32(k * 31 + 5), uv = new Float32Array(p.count * 2);
+      for (let i = 0; i < p.count; i++) {
+        const v = new THREE.Vector3().fromBufferAttribute(p, i), a = v.x * 2.3 + k, b = v.y * 1.9 + v.z * 1.4;
+        const n = 0.86 + 0.14 * Math.sin(a * 2.1) * Math.cos(b * 1.7) + 0.06 * Math.sin(v.x * 7 + v.z * 5 + k);
+        v.multiplyScalar(n); v.y *= 0.66; p.setXYZ(i, v.x, v.y, v.z); uv[i * 2] = (v.x + v.y * 0.6) * 0.9 + 0.5; uv[i * 2 + 1] = (v.z + v.y * 0.6) * 0.9 + 0.5;
+      }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.computeVertexNormals(); return g;
+    });
     const lists = [[], [], []];
     const nBig = 70, nSmall = quality === 'low' ? 120 : 260;
     for (let i = 0; i < nBig + nSmall; i++) {
@@ -190,7 +213,7 @@ export function buildWorld(scene, fx, quality = 'high') {
     }
     lists.forEach((l, k) => { const im = new THREE.InstancedMesh(geos[k], rm, l.length); l.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = true; im.receiveShadow = true; scene.add(im); });
     // dynamic loose pebbles that react to feet
-    for (let i = 0; i < 380; i++) { const sp = randSpot({ minTd: 0.5 }); const s = R(0.03, 0.07); fx.pebbles.add(sp.x, T.h(sp.x, sp.z) + s * 0.4, sp.z, 0, 0, 0, s / 0.03 * 0.6, true); }
+    for (let i = 0; i < 380; i++) { const sp = randSpot({ minTd: 0.5 }); const sc = R(0.6, 2.2); fx.pebbles.add(sp.x, T.h(sp.x, sp.z) + 0.03 * sc * 0.7, sp.z, 0, 0, 0, sc, true); }
   }
 
   // ---------- trench furnishing
@@ -273,13 +296,13 @@ export function buildWorld(scene, fx, quality = 'high') {
   }
 
   // ---------- lost-place buildings
-  const buildings = [];
+  const buildings = []; const bList = [];
   {
     const concM = new THREE.MeshStandardMaterial({ map: concT, roughness: 0.95 }), brickM = new THREE.MeshStandardMaterial({ map: brickT, roughness: 0.95 });
     const woodM = new THREE.MeshStandardMaterial({ map: woodT, roughness: 0.9 }), darkM = new THREE.MeshStandardMaterial({ color: 0x1b1a18, roughness: 1 });
     const glassBroken = new THREE.MeshStandardMaterial({ map: TX.glassTex(true), transparent: true, roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false });
     const glassIntact = new THREE.MeshStandardMaterial({ map: TX.glassTex(false), transparent: true, roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false, color: 0xcfe0e5 });
-    const add = (mesh) => { mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh); return mesh; };
+    const add = (mesh) => { mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh); bList.push(mesh); return mesh; };
     const piece = (mat, x0, y0, z0, x1, y1, z1, kind = 'concrete') => {
       const w = x1 - x0, h = y1 - y0, d = z1 - z0; if (w < 0.01 || h < 0.01 || d < 0.01) return;
       const m = add(new THREE.Mesh(texBox(w, h, d, 0.45), mat)); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); addBox(x0, y0, z0, x1, y1, z1, kind);
@@ -353,20 +376,26 @@ export function buildWorld(scene, fx, quality = 'high') {
       buildings.push({ cx: b.x, cz: b.z, gy, name: 'B', hx: 8, hz: 8 });
     }
   }
+  // merge all static building meshes per material (huge draw-call saving)
+  {
+    const buckets = new Map();
+    for (const m of bList) { m.updateMatrix(); const g = m.geometry.clone(); g.applyMatrix4(m.matrix); for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); if (!buckets.has(m.material)) buckets.set(m.material, []); buckets.get(m.material).push(g); scene.remove(m); }
+    for (const [mat, geos] of buckets) { const mm = new THREE.Mesh(mergeGeometries(geos), mat); mm.castShadow = true; mm.receiveShadow = true; scene.add(mm); }
+  }
   W.buildings = buildings;
 
   // ---------- warning signs + mine field border
   {
     const signM = new THREE.MeshStandardMaterial({ map: TX.signTex(), roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide });
-    const boardG = new THREE.PlaneGeometry(1.0, 0.625), postG = new THREE.CylinderGeometry(0.035, 0.045, 2.1, 6), postM = new THREE.MeshStandardMaterial({ color: 0x3a3a38, roughness: 0.7, metalness: 0.6 });
+    const boardG = new THREE.PlaneGeometry(1.5, 0.94), postG = new THREE.CylinderGeometry(0.04, 0.05, 2.3, 6), postM = new THREE.MeshStandardMaterial({ color: 0x3a3a38, roughness: 0.7, metalness: 0.6 });
     const boards = [], posts = [], fenceP = [], fence = [];
     const P = T.PLAY;
     const ring = (fn) => { for (let t = -P; t <= P; t += 15) { fn(t, P, Math.PI); fn(t, -P, 0); fn(P, t, -Math.PI / 2); fn(-P, t, Math.PI / 2); } };
     ring((a, b, ry) => {
       let x = a, z = b; if (ry === -Math.PI / 2 || ry === Math.PI / 2) { x = b; z = a; }
       const y = T.h(x, z);
-      _m.compose(_p.set(x, y + 1.55, z), _q.setFromEuler(_e.set(0, ry, 0)), _s.set(1, 1, 1)); boards.push(_m.clone());
-      _m.compose(_p.set(x, y + 1.0, z - 0.0), _q.identity(), _s.set(1, 1, 1)); posts.push(_m.clone());
+      _m.compose(_p.set(x, y + 1.85, z), _q.setFromEuler(_e.set(0, ry, 0)), _s.set(1, 1, 1)); boards.push(_m.clone());
+      _m.compose(_p.set(x, y + 1.1, z - 0.0), _q.identity(), _s.set(1, 1, 1)); posts.push(_m.clone());
     });
     // wire fence between signs
     const wmat = new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.6, metalness: 0.8 });
@@ -387,7 +416,7 @@ export function buildWorld(scene, fx, quality = 'high') {
     // falling trees
     for (let i = W.falling.length - 1; i >= 0; i--) {
       const t = W.falling[i]; t.fallT += dt; const dur = 1.7, u = clamp(t.fallT / dur, 0, 1), a = (Math.PI / 2 - 0.05) * (u * u * (1.2 - 0.2 * u));
-      const axis = new THREE.Vector3(t.dir.z, 0, -t.dir.x).normalize(); t.group.quaternion.setFromAxisAngle(axis, a).multiply(_q.setFromEuler(_e.set(0, 0, 0)));
+      const axis = new THREE.Vector3(t.dir.z, 0, -t.dir.x).normalize(); const qf = new THREE.Quaternion().setFromAxisAngle(axis, a).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), t.yaw)); W.setTreeMatrix(t, qf);
       if (!t.crashed && u >= 0.97) { t.crashed = true; const p = new THREE.Vector3(t.x + t.dir.x * t.h * 0.7, T.h(t.x, t.z) + 0.4, t.z + t.dir.z * t.h * 0.7); fx.dust(p, 14, [0.4, 0.34, 0.26], 1, 3); fx.leafBurst(p, 25); ctx.game?.shake(clamp(1 - p.distanceTo(camPos) / 30, 0, 1) * 0.6); }
       if (u >= 1) { t.alive = false; W.falling.splice(i, 1); }
     }
@@ -432,13 +461,13 @@ export function physStep(c, dt, gravity = 14) {
   nx = clamp(nx, -lim, lim); nz = clamp(nz, -lim, lim);
   const feet = c.pos.y, move = Math.hypot(nx - c.pos.x, nz - c.pos.z);
   const gNew = groundHeight(nx, nz, feet);
-  const ok = c.onGround ? (gNew - feet) <= Math.max(0.03, 1.05 * move) + 0.02 : gNew <= feet + 0.1;
+  const ok = c.onGround ? (gNew - feet) <= Math.max(0.03, 1.05 * move) + 0.02 : gNew <= feet + (c.isPlayer ? 0.62 : 0.1);
   if (ok) { c.pos.x = nx; c.pos.z = nz; }
   else {
     // try sliding along each axis separately
     const gx = groundHeight(nx, c.pos.z, feet), gz = groundHeight(c.pos.x, nz, feet);
     const mx = Math.abs(nx - c.pos.x), mz = Math.abs(nz - c.pos.z);
-    const okx = c.onGround ? (gx - feet) <= Math.max(0.03, 1.05 * mx) + 0.02 : gx <= feet + 0.1, okz = c.onGround ? (gz - feet) <= Math.max(0.03, 1.05 * mz) + 0.02 : gz <= feet + 0.1;
+    const okx = c.onGround ? (gx - feet) <= Math.max(0.03, 1.05 * mx) + 0.02 : gx <= feet + (c.isPlayer ? 0.62 : 0.1), okz = c.onGround ? (gz - feet) <= Math.max(0.03, 1.05 * mz) + 0.02 : gz <= feet + (c.isPlayer ? 0.62 : 0.1);
     if (okx) c.pos.x = nx; else c.vel.x *= 0.2; if (okz) c.pos.z = nz; else c.vel.z *= 0.2;
   }
   c.pos.y += c.vel.y * dt;
