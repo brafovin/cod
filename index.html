@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>READY OR NOT</title>
+<style>
+  :root { --blue:#4aa3ff; --red:#ff4a4a; --amber:#e8b84a; font-family: "Bahnschrift","Arial Narrow","Roboto Condensed","Segoe UI",sans-serif; }
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  html, body { margin:0; height:100%; background:#050505; overflow:hidden; color:#e8e6df; }
+  canvas#game { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .layer { position:fixed; inset:0; pointer-events:none; }
+  .hidden { display:none !important; }
+  /* ---------- menu */
+  #menu { pointer-events:auto; background: radial-gradient(ellipse at 30% 60%, rgba(0,0,0,0.25), rgba(0,0,0,0.78)), linear-gradient(90deg, rgba(0,0,0,0.65), rgba(0,0,0,0.1) 70%); display:flex; flex-direction:column; justify-content:center; padding-left:8vw; z-index:10; }
+  #menu h1 { font-size: clamp(54px, 9vw, 132px); letter-spacing: 0.06em; margin:0; line-height:0.9; font-weight:800; text-transform:uppercase; color:#e9e7df; text-shadow: 0 4px 30px #000; }
+  #menu h1 span { color:#b5301f; }
+  #menu .sub { letter-spacing:0.5em; color:#9a9588; margin: 10px 0 44px 6px; font-size: 14px; text-transform:uppercase; }
+  .btn { display:block; width:min(360px, 80vw); margin:10px 0; padding:16px 26px; background:rgba(15,15,14,0.72); border:1px solid #55524a; color:#eee; font:inherit; font-size:22px; letter-spacing:0.25em; text-transform:uppercase; cursor:pointer; text-align:left; transition: all .15s; position:relative; }
+  .btn:hover { background:#b5301f; border-color:#e0583f; transform: translateX(10px); }
+  .btn[disabled] { opacity:.4; cursor:wait; }
+  .btn small { display:block; letter-spacing:0.1em; font-size:12px; color:#bbb; margin-top:4px; text-transform:none; }
+  #modes { display:flex; gap:18px; margin-top:6px; }
+  .card { width:min(320px, 70vw); padding:22px; background:rgba(12,12,11,0.78); border:1px solid #55524a; cursor:pointer; transition: all .15s; }
+  .card:hover { border-color:#e0583f; background:rgba(40,16,12,0.85); transform: translateY(-4px); }
+  .card h3 { margin:0 0 8px; letter-spacing:0.15em; font-size:24px; }
+  .card p { margin:4px 0; color:#aaa59a; font-size:14px; line-height:1.4; letter-spacing:0.04em; }
+  .card .tag { display:inline-block; margin-top:10px; padding:3px 8px; background:#b5301f; font-size:12px; letter-spacing:0.15em; }
+  #quality { margin-top:26px; font-size:13px; color:#8a867b; letter-spacing:0.15em; }
+  #quality select { background:#111; color:#ddd; border:1px solid #55524a; padding:6px 10px; font:inherit; letter-spacing:0.1em; margin-left:8px; }
+  #controls { position:absolute; right:4vw; bottom:5vh; font-size:13px; line-height:1.7; color:#9d998d; letter-spacing:0.05em; text-align:right; }
+  #controls b { color:#e4e0d3; font-weight:600; }
+  #loadbar { margin-top:20px; width:min(360px,80vw); height:4px; background:#222; } #loadbar div { height:100%; width:0%; background:#b5301f; transition: width .2s; }
+  #loadtxt { font-size:12px; color:#8f8b7f; letter-spacing:0.2em; margin-top:8px; }
+  /* ---------- HUD */
+  #hud { z-index:5; font-weight:600; }
+  #crosshair { position:absolute; left:50%; top:50%; width:0; height:0; }
+  #crosshair i { position:absolute; background:rgba(255,255,255,0.9); box-shadow:0 0 2px #000; }
+  #ch-l, #ch-r { width:9px; height:2px; margin-top:-1px; } #ch-t, #ch-b { height:9px; width:2px; margin-left:-1px; }
+  #ch-dot { width:2px; height:2px; margin:-1px 0 0 -1px; }
+  #hitm { position:absolute; left:50%; top:50%; width:34px; height:34px; margin:-17px 0 0 -17px; opacity:0; transition: opacity .12s; }
+  #hitm::before, #hitm::after { content:''; position:absolute; left:50%; top:0; width:3px; height:100%; margin-left:-1.5px; background:#fff; transform:rotate(45deg); }
+  #hitm::after { transform:rotate(-45deg); } #hitm.kill::before, #hitm.kill::after { background:#ff3b3b; } #hitm.head::before, #hitm.head::after { background:#ffd24a; }
+  #score { position:absolute; top:14px; left:50%; transform:translateX(-50%); display:flex; align-items:stretch; gap:0; text-align:center; }
+  #score > div { padding:6px 22px; background:rgba(0,0,0,0.5); font-size:28px; letter-spacing:0.08em; min-width:120px; }
+  #score .t1 { border-bottom:3px solid var(--blue); } #score .t2 { border-bottom:3px solid var(--red); } #score .mid { font-size:14px; min-width:110px; color:#bbb; padding-top:10px; letter-spacing:0.2em; }
+  #score small { display:block; font-size:11px; color:#aaa; letter-spacing:0.25em; }
+  #vitals { position:absolute; left:3vw; bottom:3.5vh; width:240px; }
+  .bar { height:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,255,255,0.18); margin-top:6px; position:relative; } .bar div { height:100%; width:100%; background:#d8d4c8; transition: width .08s; }
+  #hpbar div { background:linear-gradient(90deg,#9b2d20,#e0e0d6); } #stambar { height:5px; } #stambar div { background:#c9b04a; } #stambar.tired div { background:#c4502d; }
+  #hptxt { font-size:30px; letter-spacing:0.08em; } #hptxt small { font-size:12px; color:#aaa; letter-spacing:0.3em; margin-left:8px; }
+  #ammo { position:absolute; right:3vw; bottom:3.5vh; text-align:right; }
+  #ammo .w { font-size:14px; letter-spacing:0.25em; color:#c8c3b4; text-transform:uppercase; }
+  #ammo .n { font-size:66px; line-height:1; letter-spacing:0.02em; text-shadow:0 2px 8px #000; } #ammo .n small { font-size:28px; color:#aaa; } #ammo .n.low { color:#ff6a4a; }
+  #heat { width:200px; margin-left:auto; } #heat div { background:linear-gradient(90deg,#c9b04a,#ff6a2a,#ff2a1a); }
+  #extras { font-size:13px; letter-spacing:0.18em; color:#bdb8a8; margin-top:6px; }
+  #slots { margin-top:8px; font-size:13px; letter-spacing:0.15em; color:#8d897d; } #slots b { padding:2px 7px; border:1px solid #555; margin-left:5px; } #slots b.on { background:#e0ddd0; color:#111; border-color:#e0ddd0; }
+  #minimapwrap { position:absolute; left:3vw; top:14px; width:210px; height:210px; border-radius:50%; overflow:hidden; border:2px solid rgba(255,255,255,0.35); background:#0b0c0a; box-shadow:0 0 18px #000; }
+  #minimap { width:100%; height:100%; display:block; }
+  #mmlegend { position:absolute; left:3vw; top:232px; font-size:11px; letter-spacing:0.2em; color:#b5b1a2; } #mmlegend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin:0 5px 0 12px; vertical-align:middle; } #mmlegend i:first-child{margin-left:0}
+  #clock { position:absolute; left:3vw; top:262px; font-size:13px; letter-spacing:0.25em; color:#b5b1a2; }
+  #feed { position:absolute; right:2vw; top:14px; text-align:right; font-size:15px; letter-spacing:0.06em; } #feed div { background:rgba(0,0,0,0.5); padding:4px 10px; margin-bottom:4px; animation: fade 6s forwards; display:inline-block; } @keyframes fade { 0%,80%{opacity:1} 100%{opacity:0} }
+  #feed br { display:block; content:''; }
+  .c1 { color:var(--blue); } .c2 { color:var(--red); }
+  #prompt { position:absolute; left:50%; bottom:22vh; transform:translateX(-50%); padding:8px 18px; background:rgba(0,0,0,0.55); font-size:18px; letter-spacing:0.12em; border-left:3px solid var(--amber); }
+  #msg { position:absolute; left:50%; top:24vh; transform:translateX(-50%); font-size:30px; letter-spacing:0.2em; text-align:center; text-shadow:0 2px 12px #000; }
+  #msg.warn { color:#ff3030; font-size:46px; font-weight:800; animation: blink .5s infinite alternate; } @keyframes blink { from{opacity:1} to{opacity:.35} }
+  #count { position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); font-size:160px; font-weight:800; text-shadow:0 0 40px #000; letter-spacing:0.05em; }
+  #dmg { position:absolute; inset:0; } .dmgarc { position:absolute; left:50%; top:50%; width:0; height:0; } .dmgarc i { position:absolute; left:-90px; top:-180px; width:180px; height:34px; background:radial-gradient(ellipse at 50% 100%, rgba(255,30,20,0.95), rgba(255,30,20,0) 70%); }
+  #marks { position:absolute; inset:0; } .mark { position:absolute; transform:translate(-50%,-100%); font-size:12px; color:#fff; text-shadow:0 1px 3px #000; text-align:center; letter-spacing:0.1em; white-space:nowrap; }
+  .mark::after { content:'▼'; display:block; color:var(--blue); font-size:16px; line-height:10px; }
+  #fps { position:absolute; right:10px; bottom:6px; font-size:11px; color:#777; letter-spacing:0.1em; }
+  /* ---------- overlays */
+  .overlay { z-index:20; pointer-events:auto; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; flex-direction:column; text-align:center; }
+  .overlay h2 { font-size:68px; letter-spacing:0.18em; margin:0 0 10px; } .overlay p { color:#aaa; letter-spacing:0.15em; }
+  #deadinfo { z-index:6; position:fixed; left:50%; bottom:18vh; transform:translateX(-50%); font-size:26px; letter-spacing:0.2em; text-align:center; text-shadow:0 2px 10px #000; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="layer hidden">
+  <div id="marks"></div><div id="dmg"></div>
+  <div id="crosshair"><i id="ch-l"></i><i id="ch-r"></i><i id="ch-t"></i><i id="ch-b"></i><i id="ch-dot"></i></div>
+  <div id="hitm"></div>
+  <div id="score"><div class="t1"><small>NATO</small><span id="s1">0</span></div><div class="mid"><span id="goal">ZIEL 100</span></div><div class="t2"><small>RUS</small><span id="s2">0</span></div></div>
+  <div id="minimapwrap"><canvas id="minimap" width="420" height="420"></canvas></div>
+  <div id="mmlegend"><i style="background:#4aa3ff"></i>VERBÜNDETE<i style="background:#ff4a4a"></i>GEGNER</div>
+  <div id="clock"></div>
+  <div id="feed"></div>
+  <div id="vitals"><div id="hptxt"><span id="hpn">100</span><small>HP</small></div><div class="bar" id="hpbar"><div></div></div><div class="bar" id="stambar"><div></div></div></div>
+  <div id="ammo"><div class="w" id="wname"></div><div class="n"><span id="mag">0</span> <small id="res">/ 0</small></div><div class="bar" id="heat"><div style="width:0"></div></div><div id="extras"></div><div id="slots"></div></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="msg"></div><div id="count"></div>
+  <div id="fps"></div>
+</div>
+<div id="deadinfo" class="hidden"></div>
+
+<div id="menu" class="layer">
+  <h1>Ready <span>or</span> Not</h1>
+  <div class="sub">Schützengraben &nbsp;·&nbsp; Taktischer Infanteriekampf</div>
+  <div id="mainbtns">
+    <button class="btn" id="playBtn" disabled>Spielen<small id="loadsm">Welt wird erzeugt …</small></button>
+    <div id="loadbar"><div></div></div><div id="loadtxt">LADE WELT</div>
+    <div id="quality">QUALITÄT <select id="qsel"><option value="auto">Auto (dynamische Auflösung)</option><option value="high">Hoch</option><option value="medium">Mittel</option><option value="low">Niedrig</option></select></div>
+  </div>
+  <div id="modeScreen" class="hidden">
+    <div id="modes"><div class="card" id="tdm"><h3>Team&shy;deathmatch</h3><p>4 gegen 4 · NATO gegen RUS</p><p>Das erste Team mit 100 Kills gewinnt.</p><span class="tag">STARTEN</span></div></div>
+    <button class="btn" id="backBtn" style="margin-top:24px;width:200px">Zurück</button>
+  </div>
+  <div id="controls"><b>WASD</b> Bewegen · <b>Shift</b> Rennen (6 s) · <b>Leertaste</b> Springen · <b>C</b> Ducken<br><b>Maus</b> Zielen/Schießen · <b>Rechte Maustaste</b> Visier · <b>R</b> Nachladen<br><b>1 / 2 / 3</b> Waffe/Pistole/Messer · <b>Mausrad</b> Wechseln · <b>G</b> Granate<br><b>E</b> Aufheben/Anbauen · <b>RMT mit Messer</b> Werfen · <b>L</b> Lampe · <b>Esc</b> Pause</div>
+</div>
+
+<div id="pause" class="layer overlay hidden"><h2>PAUSE</h2><p>Klicke, um fortzufahren</p></div>
+<div id="end" class="layer overlay hidden"><h2 id="endt">SIEG</h2><p id="ends"></p><button class="btn" id="againBtn" style="text-align:center;margin-top:30px">Hauptmenü</button></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
